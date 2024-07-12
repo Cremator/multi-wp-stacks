@@ -1,0 +1,4 @@
+.env
+traefik/conf/acme.json
+**/data/mariadb/**
+**/data/wordpress/**

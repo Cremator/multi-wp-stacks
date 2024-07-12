@@ -1,0 +1,109 @@
+name: wp-two
+
+x-logging:
+  &default-logging
+  options:
+    max-size: 1m
+    max-file: 50
+  driver: json-file
+
+x-environment:
+  &default-env
+  TZ: Europe/Sofia
+  PUID: 1000
+  PGID: 1000
+
+networks:
+  wp-two:
+    name: wp-two
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.19.12.0/24
+
+  traefik:
+    name: traefik
+    external: true
+
+services:
+  wp-two:
+    container_name: wp-two
+    image: wordpress:fpm
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      WORDPRESS_DB_HOST: mariadb-wp-two:3306
+      WORDPRESS_DB_USER: $DB_USER
+      WORDPRESS_DB_PASSWORD: $DB_PASSWORD
+      WORDPRESS_DB_NAME: $DB_DATABASE
+    depends_on:
+      mariadb-wp-two:
+        condition: service_healthy
+    networks:
+      - wp-two
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./data/wordpress:/var/www/html
+  mariadb-wp-two:
+    container_name: mariadb-wp-two
+    image: mariadb:11.4
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      MARIADB_USER: $DB_USER
+      MARIADB_PASSWORD: $DB_PASSWORD
+      MARIADB_DATABASE: $DB_DATABASE
+      MARIADB_ROOT_PASSWORD: $DB_ROOT_PASSWORD
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      start_period: 1m
+      start_interval: 10s
+      interval: 1m
+      timeout: 5s
+      retries: 3
+    networks:
+      - wp-two
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
+  nginx-wp-two:
+    container_name: nginx-wp-two
+    image: nginx
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      NGINX_SERVER_NAME: $DOMAIN
+      NGINX_FASTCGI_PASS: wp-two:9000
+    depends_on:
+      wp-two:
+        condition: service_started
+    networks:
+      - wp-two
+      - traefik
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./conf/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./data/wordpress:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wp-two.rule=Host(`$DOMAIN`)"
+      - "traefik.http.routers.wp-two.entrypoints=web,websecure"
+      - "traefik.http.routers.wp-two.tls=true"
+      - "traefik.http.routers.wp-two.tls.certresolver=le"
+      - "traefik.http.routers.wp-two.service=wp-two"
+      - "traefik.http.services.wp-two.loadbalancer.server.port=80"
+  redis-wp-two:
+    container_name: redis-wp-two
+    image: redis:7-alpine
+    restart: always
+    logging: *default-logging
+    environment: *default-env
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wp-two

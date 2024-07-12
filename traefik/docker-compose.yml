@@ -1,0 +1,71 @@
+name: tarefik
+
+x-logging:
+  &default-logging
+  options:
+    max-size: 1m
+    max-file: 50
+  driver: json-file
+
+x-environment:
+  &default-env
+  TZ: Europe/Sofia
+  PUID: 1000
+  PGID: 1000
+
+networks:
+  traefik:
+    name: traefik
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.19.1.0/24
+
+services:
+  traefik:
+    container_name: traefik
+    image: traefik:v3.0
+    restart: always
+    logging: *default-logging
+    environment: *default-env
+    healthcheck:
+      test: ["CMD-SHELL", "/usr/bin/wget --spider http://127.0.0.1:8080/"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.admin.domain.com`) && (PathPrefix(`/traefik`) || PathPrefix(`/api`))"
+      - "traefik.http.routers.traefik.entrypoints=web,websecure"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.tls.certresolver=le"
+      - "traefik.http.routers.traefik.middlewares=admin-ip,traefik-strip"
+      - "traefik.http.middlewares.traefik-strip.stripprefix.prefixes=/traefik"
+      - "traefik.http.middlewares.admin-ip.ipwhitelist.sourcerange=127.0.0.1/32,10.0.0.0/16"
+    command:
+      - --api.dashboard
+      - --api.insecure
+      - --providers.docker
+      - --log.level=DEBUG
+      - --accessLog
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesResolvers.le.acme.email=user@domain.com
+      - --certificatesResolvers.le.acme.storage=/config/acme.json
+      - --certificatesResolvers.le.acme.httpChallenge.entryPoint=web
+      - --providers.file.directory=/config
+      - --providers.file.watch=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=traefik
+    networks:
+      traefik:
+    ports:
+      - 80:80/tcp
+      - 443:443/tcp
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./conf:/config

@@ -1,0 +1,109 @@
+name: wp-one
+
+x-logging:
+  &default-logging
+  options:
+    max-size: 1m
+    max-file: 50
+  driver: json-file
+
+x-environment:
+  &default-env
+  TZ: Europe/Sofia
+  PUID: 1000
+  PGID: 1000
+
+networks:
+  wp-one:
+    name: wp-one
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.19.11.0/24
+
+  traefik:
+    name: traefik
+    external: true
+
+services:
+  wp-one:
+    container_name: wp-one
+    image: wordpress:fpm
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      WORDPRESS_DB_HOST: mariadb-wp-one:3306
+      WORDPRESS_DB_USER: $DB_USER
+      WORDPRESS_DB_PASSWORD: $DB_PASSWORD
+      WORDPRESS_DB_NAME: $DB_DATABASE
+    depends_on:
+      mariadb-wp-one:
+        condition: service_healthy
+    networks:
+      - wp-one
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./data/wordpress:/var/www/html
+  mariadb-wp-one:
+    container_name: mariadb-wp-one
+    image: mariadb:11.4
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      MARIADB_USER: $DB_USER
+      MARIADB_PASSWORD: $DB_PASSWORD
+      MARIADB_DATABASE: $DB_DATABASE
+      MARIADB_ROOT_PASSWORD: $DB_ROOT_PASSWORD
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      start_period: 1m
+      start_interval: 10s
+      interval: 1m
+      timeout: 5s
+      retries: 3
+    networks:
+      - wp-one
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
+  nginx-wp-one:
+    container_name: nginx-wp-one
+    image: nginx
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      NGINX_SERVER_NAME: $DOMAIN
+      NGINX_FASTCGI_PASS: wp-one:9000
+    depends_on:
+      wp-one:
+        condition: service_started
+    networks:
+      - wp-one
+      - traefik
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./conf/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./data/wordpress:/var/www/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wp-one.rule=Host(`$DOMAIN`)"
+      - "traefik.http.routers.wp-one.entrypoints=web,websecure"
+      - "traefik.http.routers.wp-one.tls=true"
+      - "traefik.http.routers.wp-one.tls.certresolver=le"
+      - "traefik.http.routers.wp-one.service=wp-one"
+      - "traefik.http.services.wp-one.loadbalancer.server.port=80"
+  redis-wp-one:
+    container_name: redis-wp-one
+    image: redis:7-alpine
+    restart: always
+    logging: *default-logging
+    environment: *default-env
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wp-one

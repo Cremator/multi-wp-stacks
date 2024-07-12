@@ -1,0 +1,98 @@
+name: phpmyadmin
+
+x-logging:
+  &default-logging
+  options:
+    max-size: 1m
+    max-file: 50
+  driver: json-file
+
+x-environment:
+  &default-env
+  TZ: Europe/Sofia
+  PUID: 1000
+  PGID: 1000
+
+networks:
+  phpmyadmin:
+    name: phpmyadmin
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.19.2.0/24
+
+  traefik:
+    name: traefik
+    external: true
+
+  wp-one:
+    name: wp-one
+    external: true
+
+  wp-two:
+    name: wp-two
+    external: true
+
+services:
+  phpmyadmin:
+    container_name: phpmyadmin
+    image: phpmyadmin
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      PMA_ABSOLUTE_URI: https://$DOMAIN/
+      PMA_HOSTS: mariadb-wp-one, mariadb-wp-two
+      PMA_CONTROLHOST: mariadb-pma
+      PMA_PMADB: $DB_DATABASE
+      PMA_CONTROLUSER: $DB_USER
+      PMA_CONTROLPASS: $DB_PASSWORD
+      PMA_QUERYHISTORYDB: true
+      UPLOAD_LIMIT: 1G
+      PMA_UPLOADDIR: /pmatmpfs
+      PMA_SAVEDIR: /pmatmpfs
+    depends_on:
+      mariadb-pma:
+        condition: service_healthy
+    networks:
+      - phpmyadmin
+      - traefik
+      - wp-one
+      - wp-two
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./conf/config.user.inc.php:/etc/phpmyadmin/config.user.inc.php
+      - type: tmpfs
+        target: /pmatmpfs
+        tmpfs:
+          size: 2000000000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pma.rule=Host(`$DOMAIN`)"
+      - "traefik.http.routers.pma.entrypoints=web,websecure"
+      - "traefik.http.routers.pma.tls=true"
+      - "traefik.http.routers.pma.tls.certresolver=le"
+      - "traefik.http.routers.pma.service=pma"
+      - "traefik.http.services.pma.loadbalancer.server.port=80"
+  mariadb-pma:
+    container_name: mariadb-pma
+    image: mariadb:11.4
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *default-env
+      MARIADB_USER: $DB_USER
+      MARIADB_PASSWORD: $DB_PASSWORD
+      MARIADB_DATABASE: $DB_DATABASE
+      MARIADB_ROOT_PASSWORD: $DB_ROOT_PASSWORD
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      start_period: 1m
+      start_interval: 10s
+      interval: 1m
+      timeout: 5s
+      retries: 3
+    networks:
+      - phpmyadmin
+    volumes:
+      - ./data/mariadb:/var/lib/mysql
