@@ -72,8 +72,9 @@ services:
       - "traefik.http.routers.pma.entrypoints=web,websecure"
       - "traefik.http.routers.pma.tls=true"
       - "traefik.http.routers.pma.tls.certresolver=le"
-      - "traefik.http.routers.pma.service=pma"
+      - "traefik.http.routers.pma.service=phpmyadmin"
       - "traefik.http.services.pma.loadbalancer.server.port=80"
+      - "traefik.http.routers.pma.middlewares=admin-ip"
   mariadb-pma:
     container_name: mariadb-pma
     image: mariadb:11.4

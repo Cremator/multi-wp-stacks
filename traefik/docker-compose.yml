@@ -35,7 +35,7 @@ services:
       retries: 3
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.traefik.rule=Host(`traefik.admin.domain.com`) && (PathPrefix(`/traefik`) || PathPrefix(`/api`))"
+      - "traefik.http.routers.traefik.rule=Host(`$DOMAIN`) && (PathPrefix(`/traefik`) || PathPrefix(`/api`))"
       - "traefik.http.routers.traefik.entrypoints=web,websecure"
       - "traefik.http.routers.traefik.service=api@internal"
       - "traefik.http.routers.traefik.tls=true"
